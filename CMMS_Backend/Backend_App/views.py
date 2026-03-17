@@ -160,7 +160,8 @@ class ForgotPasswordView(APIView):
             # Construct the reset link (pointing to our backend view)
             # We assume backend is running on HTTP_HOST 
             domain = request.META.get('HTTP_HOST', 'localhost:8000')
-            reset_url = f"http://{domain}/api/reset-password/{uid}/{token}/"
+            scheme = request.scheme
+            reset_url = f"{scheme}://{domain}/api/reset-password/{uid}/{token}/"
 
             # Send Email via Brevo API
             brevo_api_key = getattr(settings, 'BREVO_API_KEY', None)
@@ -232,7 +233,8 @@ class ResetPasswordTemplateView(View):
                 user.set_password(new_password)
                 user.save()
                 # Redirect to frontend login on success
-                return redirect('http://localhost:5173/login')
+                frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+                return redirect(f"{frontend_url}/login")
             else:
                 error = "Passwords do not match or are less than 8 characters."
                 return render(request, "Backend_App/password_reset.html", {

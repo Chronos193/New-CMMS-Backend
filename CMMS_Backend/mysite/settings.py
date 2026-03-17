@@ -194,7 +194,7 @@ CSRF_COOKIE_SAMESITE = 'None' if SECURE_SSL_REDIRECT else 'Lax'
 #----------------------------For password Rest emails --------------------------------------
 # Using Brevo API Instead of SMTP
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
-DEFAULT_FROM_EMAIL = "noreply@iitk.ac.in"
+DEFAULT_FROM_EMAIL = os.getenv('EMAIL_HOST_USER')
 #-------------------------------------------------------------------------------------
 
 AUTH_USER_MODEL = 'Backend_App.CustomUser'
