@@ -8,10 +8,14 @@ from .views import (
     HallListView,
     UserProfileView,
     NotificationListView,
-    MarkNotificationsSeenView
+    MarkNotificationsSeenView,
+    MenuListView,
+    AuthStatusView
 )
 
 urlpatterns = [
+    path('my/', AuthStatusView.as_view(), name='my'),
+    path('menu/', MenuListView.as_view(), name='menu'),
     path('halls/', HallListView.as_view(), name='halls'),
     path('profile/', UserProfileView.as_view(), name='profile'),
     path('notifications/', NotificationListView.as_view(), name='notifications'),

@@ -10,7 +10,7 @@ from django.utils.encoding import force_bytes, force_str
 from django.contrib.auth.tokens import default_token_generator
 import requests
 
-from .models import Hall, Notification
+from .models import Hall, Notification, Menu
 from .serializers import (
     SignupSerializer, 
     LoginSerializer, 
@@ -18,7 +18,8 @@ from .serializers import (
     ResetPasswordSerializer,
     HallSerializer,
     UserProfileSerializer,
-    NotificationSerializer
+    NotificationSerializer,
+    MenuSerializer
 )
 
 User = get_user_model()
@@ -47,6 +48,26 @@ class UserProfileView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+class AuthStatusView(APIView):
+    """
+    API View to check if the current user is logged in (the "My" API).
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        if request.user and request.user.is_authenticated:
+            serializer = UserProfileSerializer(request.user)
+            return Response({
+                "is_logged_in": True,
+                "user": serializer.data
+            }, status=status.HTTP_200_OK)
+        
+        return Response({
+            "is_logged_in": False,
+            "user": None
+        }, status=status.HTTP_200_OK)
+
+
 class NotificationListView(APIView):
     """
     API View to return notifications for the authenticated user.
@@ -56,6 +77,29 @@ class NotificationListView(APIView):
     def get(self, request):
         notifications = Notification.objects.filter(user=request.user).order_by('-time')
         serializer = NotificationSerializer(notifications, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class MenuListView(APIView):
+    """
+    API View to return the weekly mess menu.
+    Allows filtering by hall_id query parameter. 
+    Defaults to returning menu for the user's hall.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        hall_id = request.query_params.get('hall_id')
+        if hall_id:
+            menus = Menu.objects.filter(hall_id=hall_id)
+        else:
+            # Default to user's hall if available, else all menus
+            if getattr(request.user, 'hall_of_residence', None):
+                menus = Menu.objects.filter(hall=request.user.hall_of_residence)
+            else:
+                menus = Menu.objects.all()
+
+        serializer = MenuSerializer(menus, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 

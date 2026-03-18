@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model, authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.exceptions import AuthenticationFailed
 
-from .models import Hall, Notification
+from .models import Hall, Notification, Menu
 
 User = get_user_model()
 
@@ -24,6 +24,13 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = ['id', 'title', 'content', 'category', 'time']
+
+class MenuSerializer(serializers.ModelSerializer):
+    hall_name = serializers.CharField(source='hall.name', read_only=True)
+
+    class Meta:
+        model = Menu
+        fields = ['id', 'hall', 'hall_name', 'day', 'meal_time', 'dish']
 
 class SignupSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
