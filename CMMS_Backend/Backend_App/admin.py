@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     CustomUser, Hall, Item, RebateApp, Feedback, 
-    Cart, Booking, MyBooking, QRDatabase, Menu, Notification, DailyRebateRefund, FixedCharges
+    Cart, Booking, MyBooking, QRDatabase, Menu, Notification, DailyRebateRefund, FixedCharges, BillVerification
 )
 
 # Register your models here.
@@ -21,4 +21,4 @@ admin.site.register(Menu)
 admin.site.register(Notification)
 admin.site.register(DailyRebateRefund)
 admin.site.register(FixedCharges)
-
+admin.site.register(BillVerification)

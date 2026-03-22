@@ -14,6 +14,7 @@ from .views import (
     FeedbackListView,
     RebateAppListView,
     MessBillView,
+    MessBillPDFView,
     MyBookingListView
 )
 
@@ -27,6 +28,7 @@ urlpatterns = [
     path('feedbacks/', FeedbackListView.as_view(), name='feedbacks'),
     path('rebates/', RebateAppListView.as_view(), name='rebates'),
     path('mess-bill/', MessBillView.as_view(), name='mess-bill'),
+    path('mess-bill/pdf/', MessBillPDFView.as_view(), name='mess-bill-pdf'),
     path('my-bookings/', MyBookingListView.as_view(), name='my-bookings'),
     path('signup/', SignupView.as_view(), name='signup'),
     path('login/', LoginView.as_view(), name='login'),

@@ -1,5 +1,6 @@
 from django.shortcuts import render, redirect
 from django.conf import settings
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -9,9 +10,11 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from django.contrib.auth.tokens import default_token_generator
 import requests
+import uuid
+import io
 
 from django.db.models import Sum
-from .models import Hall, Notification, Menu, Feedback, RebateApp, FixedCharges, MyBooking, DailyRebateRefund
+from .models import Hall, Notification, Menu, Feedback, RebateApp, FixedCharges, MyBooking, DailyRebateRefund, BillVerification
 from .serializers import (
     SignupSerializer, 
     LoginSerializer, 
@@ -272,6 +275,219 @@ class MessBillView(APIView):
             })
             
         return Response(response_data, status=status.HTTP_200_OK)
+
+
+class MessBillPDFView(APIView):
+    """
+    API View to generate and download a PDF mess bill for the authenticated user.
+    Uses ReportLab to render the PDF in-memory with a unique verification UUID.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _get_rebate_days_for_month(self, user, month_str):
+        import calendar
+        from datetime import date
+        year = date.today().year
+        try:
+            month_num = list(calendar.month_name).index(month_str)
+        except (ValueError, IndexError):
+            return 0
+        month_start = date(year, month_num, 1)
+        month_end = date(year, month_num, calendar.monthrange(year, month_num)[1])
+        approved_rebates = RebateApp.objects.filter(
+            user=user, status='approved',
+            start_date__lte=month_end, end_date__gte=month_start
+        )
+        total_days = 0
+        for rebate in approved_rebates:
+            overlap_start = max(rebate.start_date, month_start)
+            overlap_end = min(rebate.end_date, month_end)
+            total_days += (overlap_end - overlap_start).days + 1
+        return total_days
+
+    def get(self, request):
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        from datetime import date
+
+        user = request.user
+        target_month = request.query_params.get('month')
+
+        if not target_month:
+            return Response({"error": "month query parameter is required (e.g. ?month=March)"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # ── Gather bill data ──
+        fixed_charges_qs = FixedCharges.objects.filter(user=user)
+        total_fixed_charges = fixed_charges_qs.aggregate(total=Sum('bill'))['total'] or 0
+        fixed_charges_list = list(fixed_charges_qs.values('category', 'bill'))
+
+        bookings = MyBooking.objects.filter(
+            user=user, status='confirmed',
+            booking__item__month=target_month
+        ).select_related('booking__item')
+
+        items_data = []
+        total_item_cost = 0
+        for mb in bookings:
+            item = mb.booking.item
+            cost = mb.quantity * item.cost
+            items_data.append({
+                "name": item.name,
+                "qty": mb.quantity,
+                "unit_cost": float(item.cost),
+                "total": float(cost),
+            })
+            total_item_cost += float(cost)
+
+        rebate_days = self._get_rebate_days_for_month(user, target_month)
+        daily_refund_obj = DailyRebateRefund.objects.filter(month=target_month).first()
+        daily_refund_rate = float(daily_refund_obj.cost) if daily_refund_obj else 0
+        rebate_refund = rebate_days * daily_refund_rate
+
+        total_bill = total_item_cost + float(total_fixed_charges) - rebate_refund
+
+        # ── Generate verification UUID ──
+        verification_id = uuid.uuid4()
+        BillVerification.objects.create(
+            user=user,
+            month=target_month,
+            verification_id=verification_id,
+            is_generated=True,
+        )
+
+        # ── Build PDF in memory ──
+        buffer = io.BytesIO()
+        width, height = A4
+        c = canvas.Canvas(buffer, pagesize=A4)
+
+        # --- Header ---
+        c.setFont("Helvetica-Bold", 18)
+        c.drawCentredString(width / 2, height - 40, "CMMS - Mess Bill Statement")
+        c.setFont("Helvetica", 10)
+        c.drawCentredString(width / 2, height - 56, "Indian Institute of Technology Kanpur")
+
+        # Divider
+        c.setLineWidth(0.8)
+        c.line(40, height - 68, width - 40, height - 68)
+
+        # --- Student Info ---
+        y = height - 95
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(40, y, "Student Details")
+        y -= 20
+        c.setFont("Helvetica", 10)
+        info_lines = [
+            f"Name:        {user.name}",
+            f"Roll No:     {user.roll_no}",
+            f"Hall:        {user.hall_of_residence.name if user.hall_of_residence else 'N/A'}",
+            f"Month:       {target_month} {date.today().year}",
+        ]
+        for line in info_lines:
+            c.drawString(50, y, line)
+            y -= 16
+
+        # Divider
+        y -= 6
+        c.line(40, y, width - 40, y)
+        y -= 20
+
+        # --- Itemized Charges Table ---
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(40, y, "Itemized Charges")
+        y -= 20
+
+        # Table header
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(50, y, "Item")
+        c.drawString(250, y, "Qty")
+        c.drawString(320, y, "Unit Cost")
+        c.drawRightString(width - 50, y, "Total")
+        y -= 4
+        c.setLineWidth(0.4)
+        c.line(50, y, width - 50, y)
+        y -= 14
+
+        c.setFont("Helvetica", 9)
+        if items_data:
+            for item in items_data:
+                c.drawString(50, y, str(item["name"]))
+                c.drawString(260, y, str(item["qty"]))
+                c.drawString(320, y, f"Rs. {item['unit_cost']:.2f}")
+                c.drawRightString(width - 50, y, f"Rs. {item['total']:.2f}")
+                y -= 16
+                if y < 100:
+                    c.showPage()
+                    y = height - 50
+        else:
+            c.drawString(50, y, "No items booked for this month.")
+            y -= 16
+
+        # Subtotal line
+        y -= 4
+        c.line(50, y, width - 50, y)
+        y -= 16
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(50, y, "Subtotal (Items)")
+        c.drawRightString(width - 50, y, f"Rs. {total_item_cost:.2f}")
+        y -= 24
+
+        # --- Fixed Charges ---
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(40, y, "Fixed Charges")
+        y -= 18
+        c.setFont("Helvetica", 9)
+        if fixed_charges_list:
+            for fc in fixed_charges_list:
+                c.drawString(50, y, str(fc["category"]))
+                c.drawRightString(width - 50, y, f"Rs. {float(fc['bill']):.2f}")
+                y -= 16
+        else:
+            c.drawString(50, y, "No fixed charges.")
+            y -= 16
+
+        c.line(50, y, width - 50, y)
+        y -= 16
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(50, y, "Subtotal (Fixed)")
+        c.drawRightString(width - 50, y, f"Rs. {float(total_fixed_charges):.2f}")
+        y -= 24
+
+        # --- Rebate ---
+        if rebate_refund > 0:
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(40, y, "Rebate Deduction")
+            y -= 18
+            c.setFont("Helvetica", 9)
+            c.drawString(50, y, f"Approved rebate days: {rebate_days}  x  Rs. {daily_refund_rate:.2f}/day")
+            c.drawRightString(width - 50, y, f"- Rs. {rebate_refund:.2f}")
+            y -= 24
+
+        # --- Grand Total ---
+        c.setLineWidth(1.2)
+        c.line(40, y, width - 40, y)
+        y -= 22
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(50, y, "Total Payable")
+        c.drawRightString(width - 50, y, f"Rs. {total_bill:.2f}")
+        y -= 30
+        c.line(40, y, width - 40, y)
+
+        # --- Verification Footer ---
+        y -= 30
+        c.setFont("Helvetica", 8)
+        c.drawCentredString(width / 2, y, f"Verification ID: {verification_id}")
+        y -= 14
+        c.drawCentredString(width / 2, y, "This is a system-generated document. For verification, contact the Mess Administration.")
+
+        # ── Finalize ──
+        c.save()
+        buffer.seek(0)
+
+        response = HttpResponse(buffer, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="MessBill_{target_month}.pdf"'
+        return response
 
 
 class SignupView(APIView):
