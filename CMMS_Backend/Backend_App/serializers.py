@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model, authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.exceptions import AuthenticationFailed
 
-from .models import Hall, Notification, Menu, Feedback, RebateApp, MyBooking, Booking, Cart, DailyRebateRefund
+from .models import Hall, Notification, Menu, Feedback, RebateApp, MyBooking, Booking, Cart, DailyRebateRefund, FixedCharges
 
 User = get_user_model()
 
@@ -30,7 +30,7 @@ class MenuSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Menu
-        fields = ['id', 'hall', 'hall_name', 'day', 'meal_time', 'dish']
+        fields = ['id', 'hall', 'hall_name', 'day', 'meal_time', 'dish', 'category']
 
 class FeedbackSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='user.name', read_only=True)
@@ -191,3 +191,12 @@ class DailyRebateRefundSerializer(serializers.ModelSerializer):
     class Meta:
         model = DailyRebateRefund
         fields = ['id', 'month', 'cost']
+
+class FixedChargesSerializer(serializers.ModelSerializer):
+    hall_name = serializers.CharField(source='hall.name', read_only=True)
+    user_email = serializers.CharField(source='user.email', read_only=True)
+
+    class Meta:
+        model = FixedCharges
+        fields = ['id', 'user', 'user_email', 'hall', 'hall_name', 'category', 'bill']
+

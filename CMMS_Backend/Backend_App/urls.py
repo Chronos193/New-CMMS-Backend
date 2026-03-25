@@ -27,7 +27,12 @@ from .views import (
     AdminBillStatusUpdateView,
     AdminSendReminderView,
     AdminExtrasDashboardView,
-    AdminExtrasItemView
+    AdminExtrasItemView,
+    AdminFeedbackStatusUpdateView,
+    AdminRebateStatusUpdateView,
+    FixedChargesListView,
+    AdminMenuUpdateView,
+    AdminMenuDeleteView
 )
 
 urlpatterns = [
@@ -49,7 +54,11 @@ urlpatterns = [
     path('admin/billing/', AdminBillingView.as_view(), name='admin-billing'),
     path('admin/billing/update-status/', AdminBillStatusUpdateView.as_view(), name='admin-billing-update-status'),
     path('admin/billing/send-reminder/', AdminSendReminderView.as_view(), name='admin-billing-send-reminder'),
-    path('bookings/', BookingListView.as_view(), name='bookings'),
+    path('admin/feedbacks/update-status/', AdminFeedbackStatusUpdateView.as_view(), name='admin_feedback_update_status'),
+    path('admin/rebates/update-status/', AdminRebateStatusUpdateView.as_view(), name='admin_rebate_update_status'),
+    path('admin/menu/update/', AdminMenuUpdateView.as_view(), name='admin_menu_update'),
+    path('admin/menu/delete/<int:pk>/', AdminMenuDeleteView.as_view(), name='admin_menu_delete'),
+    path('fixed-charges/', FixedChargesListView.as_view(), name='fixed-charges'),
     path('my-bookings/', MyBookingListView.as_view(), name='my-bookings'),
     path('signup/', SignupView.as_view(), name='signup'),
     path('login/', LoginView.as_view(), name='login'),

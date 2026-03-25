@@ -29,7 +29,8 @@ from .serializers import (
     MyBookingSerializer,
     BookingSerializer,
     CartSerializer,
-    DailyRebateRefundSerializer
+    DailyRebateRefundSerializer,
+    FixedChargesSerializer
 )
 
 User = get_user_model()
@@ -112,6 +113,48 @@ class MenuListView(APIView):
         serializer = MenuSerializer(menus, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+class AdminMenuUpdateView(APIView):
+    """
+    API View for Admin to add or update a menu item.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        
+        item_id = request.data.get('id')
+        if item_id:
+            try:
+                menu_item = Menu.objects.get(id=item_id)
+                serializer = MenuSerializer(menu_item, data=request.data, partial=True)
+            except Menu.DoesNotExist:
+                return Response({"error": "Menu item not found."}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            serializer = MenuSerializer(data=request.data)
+            
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK if item_id else status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class AdminMenuDeleteView(APIView):
+    """
+    API View for Admin to delete a menu item.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            menu_item = Menu.objects.get(pk=pk)
+            menu_item.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Menu.DoesNotExist:
+            return Response({"error": "Menu item not found."}, status=status.HTTP_404_NOT_FOUND)
+
 
 class MarkNotificationsSeenView(APIView):
     """
@@ -123,6 +166,51 @@ class MarkNotificationsSeenView(APIView):
         updated_count = Notification.objects.filter(user=request.user, category='unseen').update(category='seen')
         return Response({"message": f"{updated_count} notifications marked as seen."}, status=status.HTTP_200_OK)
 
+
+class AdminRebateStatusUpdateView(APIView):
+    """
+    API View for Admin to approve or reject rebate applications.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({"error": "Unauthorized. Admin role required."}, status=status.HTTP_403_FORBIDDEN)
+        
+        rebate_id = request.data.get('rebate_id')
+        new_status = request.data.get('status') # Expecting 'approved' or 'rejected'
+        note = request.data.get('note', '')
+
+        if not rebate_id or not new_status:
+            return Response({"error": "rebate_id and status are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        valid_statuses = ['approved', 'rejected', 'pending']
+        if new_status not in valid_statuses:
+            return Response({"error": f"Invalid status. Must be one of {valid_statuses}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            rebate = RebateApp.objects.get(id=rebate_id)
+            rebate.status = new_status
+            rebate.save()
+
+            # Create notification for the student
+            status_text = new_status.capitalize()
+            Notification.objects.create(
+                user=rebate.user,
+                title=f"Rebate Application {status_text}",
+                content=f"Your rebate application for the period {rebate.start_date} to {rebate.end_date} has been {new_status}. {f'Note: {note}' if note else ''}",
+                category='unseen'
+            )
+
+            return Response({
+                "message": f"Rebate status updated to {new_status}",
+                "status": new_status
+            }, status=status.HTTP_200_OK)
+
+        except RebateApp.DoesNotExist:
+            return Response({"error": "Rebate application not found."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class FeedbackListView(APIView):
     """
@@ -145,6 +233,54 @@ class FeedbackListView(APIView):
             serializer.save(user=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class AdminFeedbackStatusUpdateView(APIView):
+    """
+    Admin-only: Update a feedback's status.
+    Also sends a notification to the user.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        feedback_id = request.data.get('id')
+        new_status = request.data.get('status')  # 'pending', 'in_progress', 'resolved'
+
+        if not feedback_id or not new_status:
+            return Response({"error": "id and status are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            feedback = Feedback.objects.get(id=feedback_id)
+        except Feedback.DoesNotExist:
+            return Response({"error": "Feedback not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Ensure valid status
+        valid_statuses = dict(Feedback.STATUS_CHOICES).keys()
+        if new_status not in valid_statuses:
+            return Response({"error": f"Invalid status. Must be one of {list(valid_statuses)}."}, status=status.HTTP_400_BAD_REQUEST)
+
+        feedback.status = new_status
+        feedback.save()
+
+        # Send notification to student
+        status_display = dict(Feedback.STATUS_CHOICES).get(new_status, new_status.capitalize())
+        
+        notif_title = f"Feedback Status Updated: {feedback.category}"
+        notif_content = f"The status of your feedback regarding '{feedback.category}' has been updated to {status_display}."
+
+        Notification.objects.create(
+            user=feedback.user,
+            title=notif_title,
+            content=notif_content,
+            category='unseen'
+        )
+
+        return Response({
+            "message": f"Feedback #{feedback.id} status updated to {status_display}",
+            "status": new_status
+        }, status=status.HTTP_200_OK)
 
 
 class RebateAppListView(APIView):
@@ -1100,6 +1236,31 @@ class DailyRebateRefundListView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+
+class FixedChargesListView(APIView):
+    """
+    API View to list Fixed Charges.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if getattr(request.user, 'role', '') == 'admin':
+            charges = FixedCharges.objects.all().order_by('hall', 'category')
+        else:
+            charges = FixedCharges.objects.filter(user=request.user).order_by('hall', 'category')
+        
+        serializer = FixedChargesSerializer(charges, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+        
+        serializer = FixedChargesSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class ForgotPasswordView(APIView):
     """

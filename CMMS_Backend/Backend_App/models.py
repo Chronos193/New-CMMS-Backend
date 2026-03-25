@@ -227,9 +227,7 @@ class Menu(models.Model):
     day = models.CharField(max_length=20, choices=DAY_CHOICES, default='Monday')
     meal_time = models.CharField(max_length=20, choices=MEAL_CHOICES, default='Breakfast')
     dish = models.CharField(max_length=255)
-    
-    # Optional: if you also want to classify dishes like MAIN, CURRY, SIDE, etc. as in the UI
-    # category = models.CharField(max_length=50, blank=True, null=True)
+    category = models.CharField(max_length=50, blank=True, null=True)
 
     def __str__(self):
         return f"{self.hall.name} - {self.day} {self.meal_time}: {self.dish}"
