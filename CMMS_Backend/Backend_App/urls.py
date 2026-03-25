@@ -59,6 +59,7 @@ urlpatterns = [
     path('admin/menu/update/', AdminMenuUpdateView.as_view(), name='admin_menu_update'),
     path('admin/menu/delete/<int:pk>/', AdminMenuDeleteView.as_view(), name='admin_menu_delete'),
     path('fixed-charges/', FixedChargesListView.as_view(), name='fixed-charges'),
+    path('bookings/', BookingListView.as_view(), name='bookings'),
     path('my-bookings/', MyBookingListView.as_view(), name='my-bookings'),
     path('signup/', SignupView.as_view(), name='signup'),
     path('login/', LoginView.as_view(), name='login'),
