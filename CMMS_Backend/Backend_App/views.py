@@ -14,7 +14,7 @@ import uuid
 import io
 
 from django.db.models import Sum
-from .models import Hall, Notification, Menu, Feedback, RebateApp, FixedCharges, MyBooking, DailyRebateRefund, BillVerification, Booking, Cart, Item
+from .models import Hall, Notification, Menu, Feedback, RebateApp, FixedCharges, MyBooking, DailyRebateRefund, BillVerification, Booking, Cart, Item, BillPaymentStatus
 from .serializers import (
     SignupSerializer, 
     LoginSerializer, 
@@ -488,6 +488,12 @@ class MessBillView(APIView):
             rebate_refund = rebate_days * daily_refund_rate
 
             total_bill = data["total_item_cost"] + total_fixed_charges - rebate_refund
+
+            # Include payment status for student
+            pay_status_obj = BillPaymentStatus.objects.filter(user=user, month=month).first()
+            payment_status = pay_status_obj.status if pay_status_obj else 'unpaid'
+            paid_on = pay_status_obj.paid_on.isoformat() if pay_status_obj and pay_status_obj.paid_on else None
+
             response_data.append({
                 "month": month,
                 "total_item_cost": data["total_item_cost"],
@@ -497,10 +503,238 @@ class MessBillView(APIView):
                 "rebate_refund": rebate_refund,
                 "total_bill": total_bill,
                 "fixed_charges_details": fixed_charges_list,
-                "items_bought": data["items"]
+                "items_bought": data["items"],
+                "payment_status": payment_status,
+                "paid_on": paid_on,
             })
             
         return Response(response_data, status=status.HTTP_200_OK)
+
+
+class AdminBillingView(APIView):
+    """
+    Admin-only API View to return billing data for ALL students.
+    Used by the AdminBillingPage frontend.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def _get_rebate_days_for_month(self, user, month_str):
+        import calendar
+        from datetime import date
+
+        year = date.today().year
+        try:
+            month_num = list(calendar.month_name).index(month_str)
+        except (ValueError, IndexError):
+            return 0
+
+        month_start = date(year, month_num, 1)
+        month_end = date(year, month_num, calendar.monthrange(year, month_num)[1])
+
+        approved_rebates = RebateApp.objects.filter(
+            user=user, status='approved',
+            start_date__lte=month_end, end_date__gte=month_start
+        )
+
+        total_days = 0
+        for rebate in approved_rebates:
+            overlap_start = max(rebate.start_date, month_start)
+            overlap_end = min(rebate.end_date, month_end)
+            total_days += (overlap_end - overlap_start).days + 1
+
+        return total_days
+
+    def get(self, request):
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        target_month = request.query_params.get('month')
+
+        from .models import CustomUser
+        students = CustomUser.objects.filter(role='student').select_related('hall_of_residence')
+
+        # Get daily refund rate for the target month
+        daily_refund_rate = 0
+        if target_month:
+            daily_refund_obj = DailyRebateRefund.objects.filter(month=target_month).first()
+            daily_refund_rate = float(daily_refund_obj.cost) if daily_refund_obj else 0
+
+        import calendar
+        from datetime import date
+        total_days_in_month = 0
+        if target_month:
+            try:
+                year = date.today().year
+                month_num = list(calendar.month_name).index(target_month)
+                total_days_in_month = calendar.monthrange(year, month_num)[1]
+            except (ValueError, IndexError):
+                total_days_in_month = 30
+
+        result = []
+        for student in students:
+            # Fixed charges
+            fixed_qs = FixedCharges.objects.filter(user=student)
+            total_fixed = fixed_qs.aggregate(total=Sum('bill'))['total'] or 0
+
+            # Extras (MyBooking items)
+            bookings_qs = MyBooking.objects.filter(
+                user=student, status='confirmed'
+            ).select_related('booking__item')
+            if target_month:
+                bookings_qs = bookings_qs.filter(booking__item__month=target_month)
+
+            extras = []
+            total_extras = 0
+            for mb in bookings_qs:
+                item = mb.booking.item
+                cost = float(mb.quantity * item.cost)
+                extras.append({
+                    "item_name": item.name,
+                    "quantity": mb.quantity,
+                    "cost_per_item": float(item.cost),
+                    "total_cost": cost,
+                    "date": mb.booked_at.strftime("%Y-%m-%d") if mb.booked_at else "",
+                    "hall": item.hall.name if item.hall else "",
+                })
+                total_extras += cost
+
+            # Rebate
+            rebate_days = 0
+            if target_month:
+                rebate_days = self._get_rebate_days_for_month(student, target_month)
+
+            rebate_refund = rebate_days * daily_refund_rate
+            basic_bill = float(total_fixed)
+            grand_total = basic_bill + total_extras - rebate_refund
+
+            # Payment status
+            pay_status_obj = BillPaymentStatus.objects.filter(user=student, month=target_month).first() if target_month else None
+            pay_status = pay_status_obj.status.capitalize() if pay_status_obj else "Unpaid"
+            paid_on = pay_status_obj.paid_on.isoformat() if pay_status_obj and pay_status_obj.paid_on else None
+
+            result.append({
+                "id": student.id,
+                "name": student.name,
+                "email": student.email,
+                "roll_no": student.roll_no,
+                "hall": student.hall_of_residence.name if student.hall_of_residence else "N/A",
+                "rebate_days": rebate_days,
+                "daily_refund_rate": daily_refund_rate,
+                "rebate_refund": rebate_refund,
+                "fixed_charges": float(total_fixed),
+                "extras": extras,
+                "total_extras": total_extras,
+                "basic_bill": basic_bill,
+                "grand_total": grand_total,
+                "total_days_in_month": total_days_in_month,
+                "payStatus": pay_status,
+                "paid_on": paid_on,
+            })
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class AdminBillStatusUpdateView(APIView):
+    """
+    Admin-only: Update a student's bill payment status for a given month.
+    Also sends a notification to the student.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        user_id = request.data.get('user_id')
+        month = request.data.get('month')
+        new_status = request.data.get('status')  # 'paid', 'unpaid', 'overdue', 'waived'
+
+        if not user_id or not month or not new_status:
+            return Response({"error": "user_id, month, and status are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from .models import CustomUser
+        try:
+            student = CustomUser.objects.get(id=user_id, role='student')
+        except CustomUser.DoesNotExist:
+            return Response({"error": "Student not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        from django.utils import timezone
+        obj, created = BillPaymentStatus.objects.update_or_create(
+            user=student,
+            month=month,
+            defaults={
+                'status': new_status.lower(),
+                'paid_on': timezone.now() if new_status.lower() == 'paid' else None
+            }
+        )
+
+        # Send notification to student
+        status_display = new_status.capitalize()
+        if new_status.lower() == 'paid':
+            notif_title = f"{month} Bill Paid"
+            notif_content = f"Your {month} mess bill has been marked as paid by the admin."
+        elif new_status.lower() == 'overdue':
+            notif_title = f"{month} Bill Overdue"
+            notif_content = f"Your {month} mess bill is overdue. Please settle the payment at the earliest."
+        elif new_status.lower() == 'waived':
+            notif_title = f"{month} Bill Waived"
+            notif_content = f"Your {month} mess bill has been waived by the admin."
+        else:
+            notif_title = f"{month} Bill Status Updated"
+            notif_content = f"Your {month} mess bill status has been updated to {status_display}."
+
+        # Append optional admin note
+        note = request.data.get('note')
+        if note:
+            notif_content += f"\n\nNote from admin: {note}"
+
+        Notification.objects.create(
+            user=student,
+            title=notif_title,
+            content=notif_content,
+            category='unseen'
+        )
+
+        return Response({
+            "message": f"Bill status updated to {status_display} for {student.name}",
+            "payStatus": status_display,
+            "paid_on": obj.paid_on.isoformat() if obj.paid_on else None
+        }, status=status.HTTP_200_OK)
+
+
+class AdminSendReminderView(APIView):
+    """
+    Admin-only: Send a bill payment reminder notification to a student.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        user_id = request.data.get('user_id')
+        month = request.data.get('month')
+        note = request.data.get('note')
+
+        if not user_id or not month:
+            return Response({"error": "user_id and month are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from .models import CustomUser
+        try:
+            student = CustomUser.objects.get(id=user_id, role='student')
+        except CustomUser.DoesNotExist:
+            return Response({"error": "Student not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        Notification.objects.create(
+            user=student,
+            title=f"{month} Bill Reminder",
+            content=note if note else f"Reminder: Please pay your {month} mess bill at the earliest. Contact the mess office for more details.",
+            category='unseen'
+        )
+
+        return Response({
+            "message": f"Reminder sent to {student.name} for {month}"
+        }, status=status.HTTP_200_OK)
 
 
 class MessBillPDFView(APIView):
@@ -973,3 +1207,142 @@ class ResetPasswordTemplateView(View):
                 })
         else:
             return render(request, "Backend_App/password_reset.html", {"validlink": False})
+
+
+# ──────────────────────────────────────────────
+# Admin Extras Management Views
+# ──────────────────────────────────────────────
+
+class AdminExtrasDashboardView(APIView):
+    """
+    Admin-only: Get all hall menus and recent orders for Extras Management.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        # 1. Get Menus (Items with Bookings)
+        halls = Hall.objects.all()
+        menus = {hall.name: [] for hall in halls}
+        
+        items = Item.objects.select_related('hall').all()
+        
+        # Pre-fetch bookings to get stock
+        bookings = Booking.objects.all()
+        booking_map = {}
+        for b in bookings:
+            if b.item_id not in booking_map:
+                booking_map[b.item_id] = b
+            else:
+                if b.day_and_time < booking_map[b.item_id].day_and_time:
+                     booking_map[b.item_id] = b
+        
+        # Pre-fetch sold count using status='confirmed-not-scanned' or 'confirmed-scanned' -> any confirmed
+        from django.db.models import Sum
+        my_bookings = MyBooking.objects.filter(status__startswith='confirmed').values('booking__item_id').annotate(total_sold=Sum('quantity'))
+        sold_map = {mb['booking__item_id']: mb['total_sold'] for mb in my_bookings}
+
+        for item in items:
+            booking = booking_map.get(item.id)
+            stock = booking.available_count if booking else 0
+            sold = sold_map.get(item.id, 0)
+            
+            menus[item.hall.name].append({
+                "id": item.id,
+                "name": item.name,
+                "price": float(item.cost),
+                "stock": stock,
+                "sold": sold
+            })
+
+        # 2. Get Live Order Feed
+        orders = []
+        recent_bookings = MyBooking.objects.filter(status__startswith='confirmed').select_related('user', 'booking__item', 'booking__hall').order_by('-booked_at')[:50]
+        for mb in recent_bookings:
+            orders.append({
+                "id": str(mb.id),
+                "student": mb.user.name,
+                "hall": mb.booking.hall.name if mb.booking.hall else "",
+                "item": mb.booking.item.name,
+                "price": float(mb.booking.item.cost),
+                "time": mb.booked_at.strftime("%I:%M %p") if mb.booked_at else "",
+                "token": mb.qr_code_id[:12] # shorter token for display
+            })
+
+        return Response({
+            "menus": menus,
+            "orders": orders
+        }, status=status.HTTP_200_OK)
+
+
+class AdminExtrasItemView(APIView):
+    """
+    Admin-only: Add, edit, or delete an extra Item.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+            
+        name = request.data.get('name')
+        price = request.data.get('price')
+        stock = request.data.get('stock')
+        hall_name = request.data.get('hallName')
+
+        try:
+            hall = Hall.objects.get(name=hall_name)
+        except Hall.DoesNotExist:
+            return Response({"error": "Hall not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        from django.utils import timezone
+        item = Item.objects.create(name=name, cost=price, hall=hall)
+        Booking.objects.create(item=item, hall=hall, available_count=stock, day_and_time=timezone.now())
+
+        return Response({"message": "Item created"}, status=status.HTTP_201_CREATED)
+
+    def put(self, request):
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+            
+        item_id = request.data.get('id')
+        name = request.data.get('name')
+        price = request.data.get('price')
+        stock = request.data.get('stock')
+
+        try:
+            item = Item.objects.get(id=item_id)
+            if name: item.name = name
+            if price is not None: item.cost = price
+            item.save()
+
+            if stock is not None:
+                # Update all bookings for this item, or the first one
+                booking = Booking.objects.filter(item=item).first()
+                if booking:
+                    booking.available_count = stock
+                    booking.save()
+                else:
+                    from django.utils import timezone
+                    Booking.objects.create(item=item, hall=item.hall, available_count=stock, day_and_time=timezone.now())
+
+            return Response({"message": "Item updated"}, status=status.HTTP_200_OK)
+        except Item.DoesNotExist:
+            return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    def delete(self, request):
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+            
+        item_id = request.data.get('id')
+        try:
+            item = Item.objects.get(id=item_id)
+            item.delete()  # Cascade deletes bookings
+            return Response({"message": "Item deleted"}, status=status.HTTP_200_OK)
+        except Item.DoesNotExist:
+            return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
+
+
+

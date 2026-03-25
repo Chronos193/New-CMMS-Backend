@@ -278,3 +278,26 @@ class BillVerification(models.Model):
 
     def __str__(self):
         return f"BillVerification - {self.user.email} / {self.month} / {self.verification_id}"
+
+# ──────────────────────────────────────────────
+# Bill Payment Status (tracks paid/unpaid per student per month)
+# ──────────────────────────────────────────────
+class BillPaymentStatus(models.Model):
+    BILL_STATUS_CHOICES = [
+        ('unpaid', 'Unpaid'),
+        ('paid', 'Paid'),
+        ('overdue', 'Overdue'),
+        ('waived', 'Waived'),
+    ]
+
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='bill_statuses')
+    month = models.CharField(max_length=20)                              # e.g. "March"
+    status = models.CharField(max_length=10, choices=BILL_STATUS_CHOICES, default='unpaid')
+    paid_on = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'month')
+
+    def __str__(self):
+        return f"BillPaymentStatus - {self.user.email} / {self.month} / {self.status}"

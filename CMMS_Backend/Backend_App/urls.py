@@ -22,7 +22,12 @@ from .views import (
     CartCheckoutView,
     CartDeleteView,
     CustomTokenRefreshView,
-    DailyRebateRefundListView
+    DailyRebateRefundListView,
+    AdminBillingView,
+    AdminBillStatusUpdateView,
+    AdminSendReminderView,
+    AdminExtrasDashboardView,
+    AdminExtrasItemView
 )
 
 urlpatterns = [
@@ -41,6 +46,9 @@ urlpatterns = [
     path('cart/checkout/', CartCheckoutView.as_view(), name='cart-checkout'),
     path('cart/delete/', CartDeleteView.as_view(), name='cart-delete'),
     path('daily-rebate-refund/', DailyRebateRefundListView.as_view(), name='daily-rebate-refund'),
+    path('admin/billing/', AdminBillingView.as_view(), name='admin-billing'),
+    path('admin/billing/update-status/', AdminBillStatusUpdateView.as_view(), name='admin-billing-update-status'),
+    path('admin/billing/send-reminder/', AdminSendReminderView.as_view(), name='admin-billing-send-reminder'),
     path('bookings/', BookingListView.as_view(), name='bookings'),
     path('my-bookings/', MyBookingListView.as_view(), name='my-bookings'),
     path('signup/', SignupView.as_view(), name='signup'),
@@ -49,4 +57,6 @@ urlpatterns = [
     path('logout/', LogoutView.as_view(), name='logout'),
     path('forgot-password/', ForgotPasswordView.as_view(), name='forgot-password'),
     path('reset-password/<uidb64>/<token>/', ResetPasswordTemplateView.as_view(), name='reset-password'),
+    path('admin/extras/dashboard/', AdminExtrasDashboardView.as_view(), name='admin-extras-dashboard'),
+    path('admin/extras/items/', AdminExtrasItemView.as_view(), name='admin-extras-items'),
 ]

@@ -46,9 +46,9 @@ REST_FRAMEWORK = {
     ],
     # 2. Set the Rates
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '150/hour',      # Guests: 150 requests per hour
-        'user': '1000/hour',     # Users: 1000 requests per hour
-        'signup': '5/minute',    # Custom Scope: strict limit for creating accounts!
+        'anon': '100/minute',      # Increased from 150/hour to allow for SPA multi-requests
+        'user': '5000/hour',       # Increased from 1000/hour
+        'signup': '5/minute',    
     }
 }
 
