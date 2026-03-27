@@ -35,6 +35,7 @@ from .views import (
     AdminMenuDeleteView,
     AdminSendNotificationView,
     AdminStudentListView,
+    AdminQRScanView,
 )
 
 urlpatterns = [
@@ -73,4 +74,5 @@ urlpatterns = [
     path('reset-password/<uidb64>/<token>/', ResetPasswordTemplateView.as_view(), name='reset-password'),
     path('admin/extras/dashboard/', AdminExtrasDashboardView.as_view(), name='admin-extras-dashboard'),
     path('admin/extras/items/', AdminExtrasItemView.as_view(), name='admin-extras-items'),
+    path('admin/qr/scan/', AdminQRScanView.as_view(), name='admin-qr-scan'),
 ]

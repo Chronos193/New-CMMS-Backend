@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model, authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.exceptions import AuthenticationFailed
 
-from .models import Hall, Notification, Menu, Feedback, RebateApp, MyBooking, Booking, Cart, DailyRebateRefund, FixedCharges
+from .models import Hall, Notification, Menu, Feedback, RebateApp, MyBooking, Booking, Cart, DailyRebateRefund, FixedCharges, QRDatabase
 
 User = get_user_model()
 
@@ -150,10 +150,20 @@ class MyBookingSerializer(serializers.ModelSerializer):
     item_name = serializers.CharField(source='booking.item.name', read_only=True)
     item_cost = serializers.DecimalField(source='booking.item.cost', max_digits=10, decimal_places=2, read_only=True)
     month = serializers.CharField(source='booking.item.month', read_only=True)
+    qr_code_id = serializers.CharField(source='qr_code.code', read_only=True)
 
     class Meta:
         model = MyBooking
         fields = ['id', 'item_name', 'item_cost', 'month', 'quantity', 'status', 'booked_at', 'qr_code_id']
+
+
+class GroupedBookingSerializer(serializers.Serializer):
+    """Groups multiple MyBooking records that share the same QR code."""
+    qr_code_id = serializers.CharField()
+    booked_at = serializers.DateTimeField()
+    status = serializers.CharField()
+    items = serializers.ListField()
+    total_cost = serializers.DecimalField(max_digits=10, decimal_places=2)
 
 class BookingSerializer(serializers.ModelSerializer):
     item_name = serializers.CharField(source='item.name', read_only=True)

@@ -17,7 +17,7 @@ import calendar
 from dataclasses import dataclass
 
 from django.db.models import Sum
-from .models import Hall, Notification, Menu, Feedback, RebateApp, FixedCharges, MyBooking, DailyRebateRefund, BillVerification, Booking, Cart, Item, BillPaymentStatus
+from .models import Hall, Notification, Menu, Feedback, RebateApp, FixedCharges, MyBooking, DailyRebateRefund, BillVerification, Booking, Cart, Item, BillPaymentStatus, QRDatabase
 from .serializers import (
     SignupSerializer, 
     LoginSerializer, 
@@ -312,13 +312,56 @@ class RebateAppListView(APIView):
 class MyBookingListView(APIView):
     """
     API View to list items booked by the authenticated user.
+    Groups bookings by their shared QR code so one QR = one entry with all items.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        bookings = MyBooking.objects.filter(user=request.user).select_related('booking__item').order_by('-booked_at')
-        serializer = MyBookingSerializer(bookings, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        from collections import OrderedDict
+        from decimal import Decimal
+
+        bookings = (
+            MyBooking.objects
+            .filter(user=request.user)
+            .select_related('booking__item', 'qr_code')
+            .order_by('-booked_at')
+        )
+
+        # Group by QR code
+        grouped = OrderedDict()
+        for mb in bookings:
+            qr_key = mb.qr_code.code if mb.qr_code else f"legacy-{mb.pk}"
+
+            if qr_key not in grouped:
+                grouped[qr_key] = {
+                    "qr_code_id": qr_key,
+                    "booked_at": mb.booked_at,
+                    "status": mb.status,
+                    "items": [],
+                    "total_cost": Decimal("0.00"),
+                }
+
+            item = mb.booking.item
+            item_total = mb.quantity * item.cost
+            grouped[qr_key]["items"].append({
+                "id": mb.id,
+                "item_name": item.name,
+                "item_cost": float(item.cost),
+                "quantity": mb.quantity,
+                "month": item.month,
+            })
+            grouped[qr_key]["total_cost"] += item_total
+
+            # If any item in the group is not-scanned, the whole group is not-scanned
+            if mb.status == 'confirmed-not-scanned':
+                grouped[qr_key]["status"] = 'confirmed-not-scanned'
+
+        result = []
+        for data in grouped.values():
+            data["total_cost"] = float(data["total_cost"])
+            result.append(data)
+
+        return Response(result, status=status.HTTP_200_OK)
 
 
 class BookingListView(APIView):
@@ -499,6 +542,13 @@ class CartCheckoutView(APIView):
         import uuid
 
         with transaction.atomic():
+            # Generate ONE QR code for the entire checkout session
+            unique_qr = f"QR-{uuid.uuid4().hex[:12].upper()}"
+            qr_entry = QRDatabase.objects.create(
+                user=request.user,
+                code=unique_qr
+            )
+
             for cart_item in cart_items:
                 # Lock the relevant bookings to prevent concurrent overselling
                 bookings = Booking.objects.select_for_update().filter(item=cart_item.item)
@@ -519,12 +569,10 @@ class CartCheckoutView(APIView):
                 booking.available_count -= cart_item.quantity
                 booking.save()
 
-                unique_qr = f"QR-{uuid.uuid4().hex[:12].upper()}"
-
                 my_booking = MyBooking.objects.create(
                     user=request.user,
                     booking=booking,
-                    qr_code_id=unique_qr,
+                    qr_code=qr_entry,
                     quantity=cart_item.quantity,
                     status='confirmed-not-scanned'
                 )
@@ -533,13 +581,13 @@ class CartCheckoutView(APIView):
                     "item": cart_item.item.name,
                     "quantity": cart_item.quantity,
                     "booking_id": my_booking.id,
-                    "qr_code_id": unique_qr
                 })
 
             cart_items.delete()
 
         return Response({
             "message": "Checkout successful. Bookings confirmed.", 
+            "qr_code": unique_qr,
             "details": checkout_data
         }, status=status.HTTP_200_OK)
 
@@ -1432,7 +1480,7 @@ class AdminExtrasDashboardView(APIView):
                 "item": mb.booking.item.name,
                 "price": float(mb.booking.item.cost),
                 "time": mb.booked_at.strftime("%I:%M %p") if mb.booked_at else "",
-                "token": mb.qr_code_id[:12] # shorter token for display
+                "token": mb.qr_code.code[:12] if mb.qr_code else "N/A"  # shorter token for display
             })
 
         return Response({
@@ -1669,4 +1717,98 @@ class AdminSendNotificationView(APIView):
         return Response({
             "message": f"Notification sent to {created} student(s).",
             "sent_count": created
+        }, status=status.HTTP_200_OK)
+
+
+class AdminQRScanView(APIView):
+    """
+    Admin-only: Scan a QR code to mark all associated bookings as 'confirmed-scanned'.
+    Expected payload: {"qr_code": "QR-XXXXXXXXXXXX"}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if getattr(request.user, 'role', '') != 'admin':
+            return Response({"error": "Admin access required."}, status=status.HTTP_403_FORBIDDEN)
+
+        qr_code = request.data.get('qr_code', '').strip()
+        if not qr_code:
+            return Response({"error": "qr_code is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            qr_entry = QRDatabase.objects.get(code=qr_code)
+        except QRDatabase.DoesNotExist:
+            return Response({"error": "Invalid QR code. No matching record found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Get all bookings linked to this QR
+        my_bookings = (
+            MyBooking.objects
+            .filter(qr_code=qr_entry)
+            .select_related('booking__item', 'booking__hall', 'user')
+        )
+
+        if not my_bookings.exists():
+            return Response({"error": "No bookings found for this QR code."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Check if already scanned
+        unscanned = my_bookings.filter(status='confirmed-not-scanned')
+        already_scanned = not unscanned.exists()
+
+        if already_scanned:
+            # Still return details, but inform that it's already scanned
+            first = my_bookings.first()
+            items = []
+            for mb in my_bookings:
+                items.append({
+                    "item_name": mb.booking.item.name,
+                    "quantity": mb.quantity,
+                    "cost": float(mb.booking.item.cost * mb.quantity),
+                    "hall": mb.booking.hall.name if mb.booking.hall else "",
+                })
+            return Response({
+                "status": "already_scanned",
+                "message": "This QR code has already been scanned.",
+                "student": {
+                    "name": first.user.name,
+                    "email": first.user.email,
+                    "roll_no": first.user.roll_no,
+                },
+                "items": items,
+                "scanned_at": first.booked_at,
+            }, status=status.HTTP_200_OK)
+
+        # Mark all unscanned bookings as scanned
+        scanned_count = unscanned.update(status='confirmed-scanned')
+
+        first = my_bookings.first()
+        items = []
+        total_cost = 0
+        for mb in my_bookings:
+            item_cost = float(mb.booking.item.cost * mb.quantity)
+            items.append({
+                "item_name": mb.booking.item.name,
+                "quantity": mb.quantity,
+                "cost": item_cost,
+                "hall": mb.booking.hall.name if mb.booking.hall else "",
+            })
+            total_cost += item_cost
+
+        # Send notification to the student
+        Notification.objects.create(
+            user=first.user,
+            title="Order Collected",
+            content=f"Your order ({scanned_count} item(s), ₹{total_cost:.0f}) has been collected at the mess counter.",
+            category='unseen'
+        )
+
+        return Response({
+            "status": "success",
+            "message": f"QR code scanned successfully. {scanned_count} item(s) marked as collected.",
+            "student": {
+                "name": first.user.name,
+                "email": first.user.email,
+                "roll_no": first.user.roll_no,
+            },
+            "items": items,
+            "total_cost": total_cost,
         }, status=status.HTTP_200_OK)

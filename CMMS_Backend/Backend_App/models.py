@@ -182,7 +182,7 @@ class MyBooking(models.Model):
 
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='my_bookings')
     booking = models.ForeignKey(Booking, on_delete=models.CASCADE, related_name='user_bookings')
-    qr_code_id = models.CharField(max_length=255, unique=True)
+    qr_code = models.ForeignKey('QRDatabase', on_delete=models.CASCADE, related_name='my_bookings', null=True)
     
     # Added quantity and status for order management
     quantity = models.PositiveIntegerField(default=1)
@@ -197,8 +197,8 @@ class MyBooking(models.Model):
 # ──────────────────────────────────────────────
 class QRDatabase(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='qr_codes')
-    item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name='qr_codes')
     code = models.CharField(max_length=255, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"QR {self.code} - {self.user.email}"
