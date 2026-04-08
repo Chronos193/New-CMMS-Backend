@@ -210,3 +210,6 @@ DEFAULT_FROM_EMAIL = os.getenv('EMAIL_HOST_USER')
 #-------------------------------------------------------------------------------------
 
 AUTH_USER_MODEL = 'Backend_App.CustomUser'
+
+CSRF_COOKIE_DOMAIN = ".up.railway.app"
+SESSION_COOKIE_DOMAIN = ".up.railway.app"
