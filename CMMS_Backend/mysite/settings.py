@@ -57,6 +57,10 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
+    # ── Cross-origin cookie flags (read by LoginView / TokenRefreshView) ──
+    "AUTH_COOKIE": "access_token",
+    "AUTH_COOKIE_SECURE": True,          # Required when SameSite='None'
+    "AUTH_COOKIE_SAMESITE": "None",      # Allow cross-origin cookie delivery
 }
 
 

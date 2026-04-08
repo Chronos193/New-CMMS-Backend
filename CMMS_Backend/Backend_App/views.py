@@ -1275,8 +1275,14 @@ class CustomTokenRefreshView(APIView):
 class LogoutView(APIView):
     def post(self, request):
         response = Response({"message": "Successfully logged out."}, status=status.HTTP_200_OK)
-        response.delete_cookie(settings.SIMPLE_JWT.get('AUTH_COOKIE', 'access_token'))
-        response.delete_cookie("refresh_token")
+        response.delete_cookie(
+            settings.SIMPLE_JWT.get('AUTH_COOKIE', 'access_token'),
+            samesite=settings.SIMPLE_JWT.get('AUTH_COOKIE_SAMESITE', 'None'),
+        )
+        response.delete_cookie(
+            "refresh_token",
+            samesite=settings.SIMPLE_JWT.get('AUTH_COOKIE_SAMESITE', 'None'),
+        )
         return response
 
 
