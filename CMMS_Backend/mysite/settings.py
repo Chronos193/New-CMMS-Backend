@@ -173,15 +173,18 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Fallback to localhost if env var is missing
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").split(",")
+# --- Networking & CORS ---
 
-CORS_ALLOWED_ORIGINS = [
-    FRONTEND_URL,
-]
+# 1. Get the frontend URLs from environment as a list
+# In Railway, set FRONTEND_URL to: http://localhost:5173,https://your-frontend.vercel.app
+FRONTEND_URL_LIST = os.getenv("FRONTEND_URL", "http://localhost:5173").split(",")
 
-CSRF_TRUSTED_ORIGINS = [
-    FRONTEND_URL,
+# 2. Assign the list directly (don't wrap it in extra brackets)
+CORS_ALLOWED_ORIGINS = FRONTEND_URL_LIST
+
+# 3. Trust BOTH the Frontend and the Backend (for the admin panel)
+CSRF_TRUSTED_ORIGINS = FRONTEND_URL_LIST + [
+    "https://skillful-miracle-production.up.railway.app"
 ]
 
 CORS_ALLOW_CREDENTIALS = True
