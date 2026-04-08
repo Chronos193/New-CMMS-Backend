@@ -199,8 +199,8 @@ CSRF_COOKIE_SECURE = True
 # If frontend and backend are on different domains (e.g., Vercel vs Railway)
 # you often need SameSite='None' for cookies to work.
 # Note: 'None' requires Secure=True (HTTPS).
-SESSION_COOKIE_SAMESITE = 'None' if SECURE_SSL_REDIRECT else 'Lax'
-CSRF_COOKIE_SAMESITE = 'None' if SECURE_SSL_REDIRECT else 'Lax'
+SESSION_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SAMESITE = 'None' 
 
 #----------------------------For password Rest emails --------------------------------------
 # Using Brevo API Instead of SMTP
