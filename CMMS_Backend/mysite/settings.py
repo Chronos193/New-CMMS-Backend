@@ -176,14 +176,14 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- Networking & CORS ---
 
-# 1. Get the frontend URLs from environment as a list
-# In Railway, set FRONTEND_URL to: http://localhost:5173,https://your-frontend.vercel.app
-FRONTEND_URL_LIST = os.getenv("FRONTEND_URL", "http://localhost:5173").split(",")
+# 1. Extract, clean spaces, and remove trailing slashes automatically
+raw_frontend_urls = os.getenv("FRONTEND_URL", "http://localhost:5173").split(",")
+FRONTEND_URL_LIST = [url.strip().rstrip('/') for url in raw_frontend_urls]
 
-# 2. Assign the list directly (don't wrap it in extra brackets)
+# 2. Assign cleaned URLs
 CORS_ALLOWED_ORIGINS = FRONTEND_URL_LIST
 
-# 3. Trust BOTH the Frontend and the Backend (for the admin panel)
+# 3. Trust BOTH the Frontend and the Backend
 CSRF_TRUSTED_ORIGINS = FRONTEND_URL_LIST + [
     "https://skillful-miracle-production.up.railway.app"
 ]
@@ -192,14 +192,11 @@ CORS_ALLOW_CREDENTIALS = True
 
 # --- Security & Cookies ---
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-SECURE_SSL_REDIRECT = False # Force HTTPS in Prod
+SECURE_SSL_REDIRECT = False # (Tip: Set to True once everything is working in Prod)
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 
-
-# If frontend and backend are on different domains (e.g., Vercel vs Railway)
-# you often need SameSite='None' for cookies to work.
-# Note: 'None' requires Secure=True (HTTPS).
+# SameSite='None' requires Secure=True (HTTPS), which you have.
 SESSION_COOKIE_SAMESITE = 'None'
 CSRF_COOKIE_SAMESITE = 'None'
 
