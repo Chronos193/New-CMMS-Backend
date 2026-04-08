@@ -1,3 +1,4 @@
+```python
 from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
@@ -64,11 +65,11 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
 
+    'django.contrib.sessions.middleware.SessionMiddleware',
+
     'corsheaders.middleware.CorsMiddleware',
 
-    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-
     'django.middleware.csrf.CsrfViewMiddleware',
 
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -165,8 +166,9 @@ CSRF_COOKIE_SECURE = True
 SESSION_COOKIE_SAMESITE = "None"
 CSRF_COOKIE_SAMESITE = "None"
 
-# 🔥 KEY FIX (DO NOT REMOVE)
+# 🔥 CRITICAL FIX FOR YOUR ISSUE
 CSRF_USE_SESSIONS = True
+CSRF_COOKIE_HTTPONLY = False
 
 # ---------------- EMAIL ---------------- #
 
@@ -176,3 +178,4 @@ DEFAULT_FROM_EMAIL = os.getenv('EMAIL_HOST_USER')
 # ---------------- AUTH USER ---------------- #
 
 AUTH_USER_MODEL = 'Backend_App.CustomUser'
+```
