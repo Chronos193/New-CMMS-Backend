@@ -2,7 +2,7 @@
 
 This is the backend for the Central Mess Management System (CMMS), a comprehensive platform for managing mess operations, including student registration, menu management, rebate applications, feedback tracking, and automated billing.
 
-## Features
+## 🚀 Features
 
 - **Robust Authentication**: JWT-based authentication with Refresh Token rotation and secure cookie storage. Supports Student and Admin roles.
 - **Mess Menu Management**: Dynamic weekly menus for multiple halls, categorized by meal type (Breakfast, Lunch, Snacks, Dinner).
@@ -19,7 +19,7 @@ This is the backend for the Central Mess Management System (CMMS), a comprehensi
 - **Real-time Notifications**: Automated alerts for rebate status updates, billing, and system announcements.
 - **Admin Dashboard**: Comprehensive tools for managing students, halls, menus, and financial reports.
 
-## Tech Stack
+## 🛠️ Tech Stack
 
 - **Framework**: [Django 6.0](https://www.djangoproject.com/) & [Django REST Framework](https://www.django-rest-framework.org/)
 - **Language**: Python 3.12+
@@ -29,7 +29,7 @@ This is the backend for the Central Mess Management System (CMMS), a comprehensi
 - **Email Service**: Brevo API
 - **Static Files**: WhiteNoise
 
-## Installation & Setup
+## 📦 Installation & Setup
 
 ### Prerequisites
 - Python 3.12 or higher
@@ -43,7 +43,7 @@ cd New-CMMS-Backend
 
 ### 2. Install dependencies
 ```bash
-poetry install --no-root
+poetry install
 ```
 
 ### 3. Configure Environment Variables
@@ -52,8 +52,8 @@ Create a `.env` file in the `CMMS_Backend/` directory (where `manage.py` is loca
 ```env
 SECRET_KEY_SETTINGS="your-secure-secret-key"
 DEBUG="True"
-SECURE="False"
-SAMESITE="Lax"
+ALLOWED_HOSTS="localhost,127.0.0.1"
+DATABASE_URL="sqlite:///db.sqlite3"  # Or your PostgreSQL URL
 FRONTEND_URL="http://localhost:5173"
 BREVO_API_KEY="your-brevo-api-key"
 EMAIL_HOST_USER="your-sender-email"
@@ -71,11 +71,11 @@ poetry run python CMMS_Backend/manage.py createsuperuser
 
 ### 6. Start the Development Server
 ```bash
-poetry run python CMMS_Backend/manage.py runserver localhost:8000
+poetry run python CMMS_Backend/manage.py runserver
 ```
-The API will be available at `http://localhost:8000/`.
+The API will be available at `http://127.0.0.1:8000/`.
 
-## Project Structure
+## 📂 Project Structure
 
 - `CMMS_Backend/`: Main Django project directory.
     - `mysite/`: Project settings and root URL configuration.
@@ -83,8 +83,8 @@ The API will be available at `http://localhost:8000/`.
     - `staticfiles/`: Collected static files for production.
 - `pyproject.toml`: Poetry dependency definitions.
 
-## Post-Deployment Note
+## 📝 Post-Deployment Note
 In `settings.py`, ensure `SECURE_SSL_REDIRECT` and cookie security flags are properly configured for production environments (handled automatically when `DEBUG=False`).
 
 ---
-
+Built with ❤️ for efficient Mess Management.

@@ -57,6 +57,10 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
+    # ── Cross-origin cookie flags (read by LoginView / TokenRefreshView) ──
+    "AUTH_COOKIE": "access_token",
+    "AUTH_COOKIE_SECURE": True,          # Required when SameSite='None'
+    "AUTH_COOKIE_SAMESITE": "None",      # Allow cross-origin cookie delivery
 }
 
 
@@ -158,39 +162,47 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        # Changed from CompressedManifestStaticFilesStorage to stop the crash
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Fallback to localhost if env var is missing
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+# --- Networking & CORS ---
 
-CORS_ALLOWED_ORIGINS = [
-    FRONTEND_URL,
-]
+# 1. Extract, clean spaces, and remove trailing slashes automatically
+raw_frontend_urls = os.getenv("FRONTEND_URL", "http://localhost:5173").split(",")
+FRONTEND_URL_LIST = [url.strip().rstrip('/') for url in raw_frontend_urls]
 
-CSRF_TRUSTED_ORIGINS = [
-    FRONTEND_URL,
+# 2. Assign cleaned URLs
+CORS_ALLOWED_ORIGINS = FRONTEND_URL_LIST
+
+# 3. Trust BOTH the Frontend and the Backend
+CSRF_TRUSTED_ORIGINS = FRONTEND_URL_LIST + [
+    "https://skillful-miracle-production.up.railway.app"
 ]
 
 CORS_ALLOW_CREDENTIALS = True
 
 # --- Security & Cookies ---
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-SECURE_SSL_REDIRECT = os.getenv("DEBUG", "False") != "True" # Force HTTPS in Prod
-SESSION_COOKIE_SECURE = SECURE_SSL_REDIRECT
-CSRF_COOKIE_SECURE = SECURE_SSL_REDIRECT
+SECURE_SSL_REDIRECT = False # (Tip: Set to True once everything is working in Prod)
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
 
-
-# If frontend and backend are on different domains (e.g., Vercel vs Railway)
-# you often need SameSite='None' for cookies to work.
-# Note: 'None' requires Secure=True (HTTPS).
-SESSION_COOKIE_SAMESITE = 'None' if SECURE_SSL_REDIRECT else 'Lax'
-CSRF_COOKIE_SAMESITE = 'None' if SECURE_SSL_REDIRECT else 'Lax'
+# SameSite='None' requires Secure=True (HTTPS), which you have.
+SESSION_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SAMESITE = 'None'
 
 #----------------------------For password Rest emails --------------------------------------
 # Using Brevo API Instead of SMTP
@@ -199,3 +211,4 @@ DEFAULT_FROM_EMAIL = os.getenv('EMAIL_HOST_USER')
 #-------------------------------------------------------------------------------------
 
 AUTH_USER_MODEL = 'Backend_App.CustomUser'
+
